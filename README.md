@@ -1,136 +1,163 @@
-# tfn - Terraform Notify
+# tfn
 
-Terraform CLI wrapper that sends **Telegram notifications** on command completion.
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Dependencies](https://img.shields.io/badge/dependencies-stdlib%20only-brightgreen)](#technical-decisions)
 
-```
+A transparent Terraform CLI wrapper that sends **Telegram notifications** on command completion.
+
+```bash
+# Before: terraform plan (no feedback when away from terminal)
+terraform plan -chdir=terraform/environments/crm_dev
+
+# After: same behavior + Telegram notification
 tfn plan -chdir=terraform/environments/crm_dev
-
-= terraform plan -chdir=terraform/environments/crm_dev
-+ Telegram notification on completion
 ```
 
 ## Features
 
-- **Transparent Proxy** — `tfn <args>` = `terraform <args>` (stdin/stdout/stderr/exit code 100% 보존)
-- **Selective Notification** — `plan`, `apply`, `init`, `validate`만 알림, 나머지는 패스스루
-- **Zero Dependencies** — Go stdlib만 사용, 외부 라이브러리 없음
-- **Graceful Degradation** — 설정 없으면 알림 스킵, terraform만 실행
+- **Transparent Proxy** — `tfn <args>` is identical to `terraform <args>` (stdin/stdout/stderr/exit code fully preserved)
+- **Selective Notification** — Only notifies on `plan`, `apply`, `init`, `validate`; all other commands pass through silently
+- **Zero Dependencies** — Built with Go standard library only; no external packages
+- **Graceful Degradation** — Runs terraform normally when credentials are not configured
 
-## Installation
+## Quick Start
+
+### Prerequisites
+
+- Go 1.21+
+- Terraform CLI installed and available in `$PATH`
+- Telegram Bot token and Chat ID ([how to create a bot](https://core.telegram.org/bots#how-do-i-create-a-bot))
+
+### Build & Install
 
 ```bash
-# Build
-cd ~/khko_tools/tfn
+git clone https://github.com/dhy02014/custom_tools.git
+cd custom_tools
 go build -o tfn .
-
-# Install
-sudo ln -sf ~/khko_tools/tfn/tfn /usr/local/bin/tfn
+sudo ln -sf "$(pwd)/tfn" /usr/local/bin/tfn
 ```
 
-## Configuration
+### Configuration
 
-**Option A: Config File (`~/.tfn.env`) — 권장**
+Create `~/.tfn.env`:
 
 ```env
-# tfn - Terraform Notify configuration
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
 TELEGRAM_CHAT_ID=-100123456789
 ```
 
-**Option B: Environment Variables**
+Alternatively, use environment variables:
 
 ```bash
 export TELEGRAM_BOT_TOKEN="123456:ABC-DEF..."
 export TELEGRAM_CHAT_ID="-100123456789"
 ```
 
+> Config priority: Environment variables > `~/.tfn.env` > no config (notification skipped)
+
 ## Usage
 
 ```bash
-# 알림 대상 명령어
-tfn plan -chdir=terraform/environments/crm_dev
-tfn apply -chdir=terraform/environments/crm_prd
+# Commands that trigger notifications
+tfn plan -chdir=terraform/environments/dev
+tfn apply -chdir=terraform/environments/prd
 tfn init -upgrade
 tfn validate
 
-# 알림 없이 패스스루
+# Commands that pass through without notification
 tfn fmt
 tfn state list
 tfn version
+tfn output
 ```
 
 ## How It Works
 
 ```
-  Terminal ──> tfn ──> terraform
-                │
-                ├─ stdin  직접 연결 (interactive 지원)
-                ├─ stdout 실시간 스트리밍
-                ├─ stderr 실시간 스트리밍 + 버퍼 캡처
-                └─ exit code 그대로 반환
+Terminal ──> tfn ──> terraform
+               │
+               ├── stdin   directly connected (interactive prompts supported)
+               ├── stdout  real-time streaming
+               ├── stderr  real-time streaming + buffer capture
+               └── exit code preserved
 
-  terraform 종료 후:
-    알림 대상 명령? ──Yes──> Telegram 전송
-                    ──No──> 종료
+After terraform exits:
+  notify-worthy command? ──Yes──> Send Telegram message
+                         ──No──> Exit
 ```
 
-## Telegram Message
+### Notification Format
 
-**Success:**
+**On success:**
 ```
-✅ Terraform plan 성공
+✅ Terraform plan succeeded
 ━━━━━━━━━━━━━━━━━━━━
-📁 디렉토리: crm_dev
-⏱ 소요시간: 12.3s
-💻 명령어: terraform plan -chdir=...
+📁 Directory: crm_dev
+⏱ Duration: 12.3s
+💻 Command: terraform plan -chdir=...
 ```
 
-**Failure** (stderr 마지막 10줄 포함):
+**On failure** (includes last 10 lines of stderr):
 ```
-❌ Terraform validate 실패
+❌ Terraform validate failed
 ━━━━━━━━━━━━━━━━━━━━
-📁 디렉토리: crm_dev
-⏱ 소요시간: 0.8s
-💻 명령어: terraform validate
+📁 Directory: crm_dev
+⏱ Duration: 0.8s
+💻 Command: terraform validate
 
-📋 에러 요약:
+📋 Error summary:
   Error: Missing required argument...
 ```
 
 ## Project Structure
 
 ```
-~/khko_tools/tfn/
-├── main.go        # Entrypoint, 알림 대상 판별
-├── runner.go      # terraform 실행, I/O 스트리밍
-├── notifier.go    # Telegram Bot API 호출
-├── config.go      # 설정 로드 (env vars → ~/.tfn.env)
-├── go.mod         # Go module (stdlib only)
-├── docs/          # 모듈별 상세 문서
+.
+├── main.go        # Entrypoint, subcommand detection, orchestration
+├── runner.go      # Terraform process execution, I/O streaming
+├── notifier.go    # Telegram Bot API client, message formatting
+├── config.go      # Configuration loader (env vars / .env file)
+├── go.mod
+├── docs/          # Per-module detailed documentation
 │   ├── main.md
 │   ├── runner.md
 │   ├── notifier.md
 │   └── config.md
+├── LICENSE
 └── README.md
 ```
 
 ## Documentation
 
-각 Go 파일의 패키지 사용 상세, 동작 원리, 다이어그램은 `docs/`를 참고하세요:
+Detailed documentation for each module (package usage, diagrams, internals):
 
-| 문서 | 내용 |
-|------|------|
-| [docs/main.md](docs/main.md) | 엔트리포인트, 알림 판별 로직, 실행 흐름 |
-| [docs/runner.md](docs/runner.md) | Transparent Proxy 패턴, I/O 스트리밍, exit code 처리 |
-| [docs/notifier.md](docs/notifier.md) | Telegram API 호출, JSON 직렬화, MarkdownV2 이스케이프 |
-| [docs/config.md](docs/config.md) | 설정 로드 순서, .env 파싱, 경로 조합 |
+| Document | Description |
+|----------|-------------|
+| [docs/main.md](docs/main.md) | Entrypoint, subcommand routing, execution flow |
+| [docs/runner.md](docs/runner.md) | Transparent proxy pattern, I/O streaming, exit code handling |
+| [docs/notifier.md](docs/notifier.md) | Telegram API integration, JSON serialization, MarkdownV2 escaping |
+| [docs/config.md](docs/config.md) | Config loading priority, `.env` file parsing |
 
 ## Technical Decisions
 
-| Decision | Choice | Reason |
-|----------|--------|--------|
-| Language | Go | Single binary, no runtime deps, cross-compile |
-| Dependencies | stdlib only | No supply chain risk, minimal build complexity |
-| Config format | `.env` (KEY=VALUE) | Simple parsing without YAML library |
-| Notification | Telegram Bot API | Simple HTTP POST, no SDK needed |
-| stderr capture | Last 10 lines | Enough context within Telegram message limit |
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Language | Go | Single binary, no runtime dependencies, easy cross-compilation |
+| Dependencies | stdlib only | Zero supply chain risk, minimal build complexity |
+| Config format | `.env` (KEY=VALUE) | Simple line-by-line parsing without YAML library |
+| Notification | Telegram Bot API | Single HTTP POST call, no SDK needed |
+| stderr capture | Last 10 lines | Sufficient context within Telegram's 4096-char message limit |
+| MarkdownV2 escape | Manual | Only 19 special characters; library would be overkill |
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'feat: add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

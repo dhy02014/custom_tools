@@ -1,20 +1,20 @@
 # main.go — Entrypoint
 
-CLI 인자를 파싱하고, 알림 대상 명령어를 판별하여 runner → notifier 순으로 오케스트레이션합니다.
+Parses CLI arguments, detects the terraform subcommand, and orchestrates the runner → notifier pipeline.
 
-## 사용 패키지
+## Packages Used
 
-| 패키지 | 사용된 함수/변수 | 용도 |
-|--------|-----------------|------|
-| `os` | `os.Args` | CLI 인자 수신 (`os.Args[1:]`로 tfn 자신 제외) |
-| | `os.Exit(code)` | terraform exit code를 프로세스에 그대로 반환 |
-| | `os.Stderr` | 알림 실패 시 경고 메시지 출력 대상 |
-| | `os.Getwd()` | `-chdir` 미지정 시 현재 디렉토리명 추출 |
-| `fmt` | `fmt.Fprintf()` | stderr에 포맷팅된 에러 메시지 출력 |
-| `time` | `time.Now()` | terraform 실행 직전 시각 기록 |
-| | `time.Since(t)` | 실행 완료 후 경과 시간 계산 |
+| Package | Function / Variable | Purpose |
+|---------|-------------------|---------|
+| `os` | `os.Args` | Receive CLI arguments (`os.Args[1:]` excludes the tfn binary itself) |
+| | `os.Exit(code)` | Forward terraform's exit code to the calling process |
+| | `os.Stderr` | Output warning messages when notification fails |
+| | `os.Getwd()` | Extract current directory name when `-chdir` is not specified |
+| `fmt` | `fmt.Fprintf()` | Write formatted error messages to stderr |
+| `time` | `time.Now()` | Record timestamp just before terraform execution |
+| | `time.Since(t)` | Calculate elapsed time after execution completes |
 
-## 알림 대상 명령어 판별
+## Subcommand Detection
 
 ```go
 var notifyCommands = map[string]bool{
@@ -25,43 +25,42 @@ var notifyCommands = map[string]bool{
 }
 ```
 
-첫 번째 non-flag 인자를 subcommand로 인식합니다:
+The first non-flag argument is identified as the subcommand:
 
 ```
-tfn -chdir=path plan    → subcommand = "plan"  (알림 O)
-tfn fmt                 → subcommand = "fmt"   (알림 X)
-tfn version             → subcommand = "version" (알림 X)
+tfn -chdir=path plan    → subcommand = "plan"     (notify)
+tfn fmt                 → subcommand = "fmt"      (passthrough)
+tfn version             → subcommand = "version"  (passthrough)
 ```
 
-## 실행 흐름
+## Execution Flow
 
 ```
 main()
   │
-  ├─ args 파싱 (os.Args[1:])
+  ├─ Parse args (os.Args[1:])
   │
-  ├─ subcommand 감지 (첫 번째 non-flag arg)
+  ├─ Detect subcommand (first non-flag arg)
   │
-  ├─ time.Now() ─── 타이머 시작
+  ├─ time.Now() ─── start timer
   │
-  ├─ runTerraform(args) ─── runner.go 호출
+  ├─ runTerraform(args) ─── calls runner.go
   │
-  ├─ time.Since(start) ─── 소요시간 계산
+  ├─ time.Since(start) ─── calculate duration
   │
   ├─ notifyCommands[subcommand]?
   │   ├─ Yes → loadConfig() → sendNotification()
-  │   └─ No  → 스킵
+  │   └─ No  → skip
   │
   └─ os.Exit(result.ExitCode)
 ```
 
-## extractWorkDir 함수
+## extractWorkDir
 
-`-chdir=terraform/environments/crm_dev`에서 마지막 경로 컴포넌트(`crm_dev`)를 추출합니다.
-Telegram 메시지의 "디렉토리" 필드에 사용됩니다.
+Extracts the last path component from the `-chdir=<path>` argument for use in the Telegram message "Directory" field.
 
 ```
 -chdir=terraform/environments/crm_dev → "crm_dev"
 -chdir=dev                            → "dev"
-(미지정)                               → 현재 디렉토리명 (os.Getwd)
+(not specified)                        → current directory name via os.Getwd()
 ```
